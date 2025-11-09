@@ -1,0 +1,42 @@
+services:
+  cowrie:
+    image: cowrie/cowrie:latest
+    container_name: cowrie-hpot
+    restart: unless-stopped
+    ports:
+      - "2222:2222"
+    volumes:
+      # Use project-local logs folder; map to all common Cowrie log paths
+      - ./cowrie_logs:/cowrie/log
+      - ./cowrie_logs:/cowrie/var/log/cowrie
+      - ./cowrie_logs:/cowrie/cowrie-git/var/log/cowrie
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    depends_on:
+      - cowrie
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./cowrie_logs:/app/cowrie_logs:ro
+
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    command: ["--bind_ip_all"]
+
+volumes:
+  mongo_data:

