@@ -3,10 +3,79 @@ const totalEl = document.getElementById('totalEvents');
 const uniqueIpsEl = document.getElementById('uniqueIps');
 const totalCommandsEl = document.getElementById('totalCommands');
 const totalCredsEl = document.getElementById('totalCreds');
+const topAttackEl = document.getElementById('topAttack');
 const logsBody = document.getElementById('logsBody');
 const insightsEl = document.getElementById('insights');
+const modelStatusEl = document.getElementById('modelStatus');
+const attackChipsEl = document.getElementById('attackChips');
 
 let ipChart, cmdChart, timelineChart;
+
+function formatConfidence(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '-';
+  }
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
+function labelClassName(label) {
+  const normalized = (label || '').toLowerCase();
+  if (normalized.includes('benign') || normalized === 'no_command') return 'attack-benign';
+  if (normalized.includes('critical') || normalized.includes('rce') || normalized.includes('malware')) return 'attack-critical';
+  if (normalized.includes('high') || normalized.includes('bruteforce') || normalized.includes('lateral')) return 'attack-high';
+  if (normalized.includes('scan') || normalized.includes('recon')) return 'attack-medium';
+  if (normalized === 'model_unavailable' || normalized === 'prediction_error') return 'attack-unknown';
+  return 'attack-medium';
+}
+
+function renderAttackChips(attackLabels) {
+  attackChipsEl.innerHTML = '';
+  if (!attackLabels || attackLabels.length === 0) {
+    attackChipsEl.innerHTML = '<div class="attack-chip attack-unknown">No predictions yet</div>';
+    return;
+  }
+
+  attackLabels.slice(0, 8).forEach(item => {
+    const chip = document.createElement('div');
+    chip.className = `attack-chip ${labelClassName(item.value)}`;
+    chip.textContent = `${item.value} (${item.count})`;
+    attackChipsEl.appendChild(chip);
+  });
+}
+
+function buildRow(r) {
+  const tr = document.createElement('tr');
+  const tdTs = document.createElement('td');
+  tdTs.textContent = r.timestamp ? r.timestamp.substring(0, 19).replace('T', ' ') : '';
+  tr.appendChild(tdTs);
+
+  const tdIp = document.createElement('td');
+  tdIp.textContent = r.ip || '';
+  tr.appendChild(tdIp);
+
+  const tdUser = document.createElement('td');
+  tdUser.textContent = r.username || '';
+  tr.appendChild(tdUser);
+
+  const tdCmd = document.createElement('td');
+  tdCmd.textContent = r.command ? r.command.substring(0, 60) : '';
+  tdCmd.title = r.command || '';
+  tr.appendChild(tdCmd);
+
+  const tdEvt = document.createElement('td');
+  tdEvt.textContent = r.event_type ? r.event_type.replace('cowrie.', '') : '';
+  tr.appendChild(tdEvt);
+
+  const tdPred = document.createElement('td');
+  tdPred.textContent = r.attack_label || '-';
+  tdPred.className = labelClassName(r.attack_label);
+  tr.appendChild(tdPred);
+
+  const tdConf = document.createElement('td');
+  tdConf.textContent = formatConfidence(r.attack_confidence);
+  tr.appendChild(tdConf);
+  return tr;
+}
 
 async function fetchJson(path) {
   const url = path;
@@ -196,20 +265,7 @@ function formatGeminiInsights(summary) {
 function renderLogs(rows) {
   logsBody.innerHTML = '';
   rows.slice(0, 200).forEach(r => {
-    const tr = document.createElement('tr');
-    const tdTs = document.createElement('td'); 
-    tdTs.textContent = r.timestamp ? r.timestamp.substring(0, 19).replace('T', ' ') : ''; 
-    tr.appendChild(tdTs);
-    const tdIp = document.createElement('td'); tdIp.textContent = r.ip || ''; tr.appendChild(tdIp);
-    const tdUser = document.createElement('td'); tdUser.textContent = r.username || ''; tr.appendChild(tdUser);
-    const tdCmd = document.createElement('td'); 
-    tdCmd.textContent = r.command ? r.command.substring(0, 60) : ''; 
-    tdCmd.title = r.command || '';
-    tr.appendChild(tdCmd);
-    const tdEvt = document.createElement('td'); 
-    tdEvt.textContent = r.event_type ? r.event_type.replace('cowrie.', '') : ''; 
-    tr.appendChild(tdEvt);
-    logsBody.appendChild(tr);
+    logsBody.appendChild(buildRow(r));
   });
 }
 
@@ -224,9 +280,21 @@ async function refresh() {
     ]);
 
     totalEl.textContent = stats.total_events;
-    uniqueIpsEl.textContent = stats.top_ips.length;
+    uniqueIpsEl.textContent = new Set((logs.data || []).map(item => item.ip).filter(Boolean)).size;
     totalCommandsEl.textContent = stats.top_commands.reduce((sum, c) => sum + c.count, 0);
     totalCredsEl.textContent = stats.credential_attempts.reduce((sum, c) => sum + c.count, 0);
+    topAttackEl.textContent = (stats.attack_labels && stats.attack_labels[0] && stats.attack_labels[0].value) || '-';
+
+    if (stats.model && stats.model.available) {
+      modelStatusEl.textContent = 'Model status: online';
+      modelStatusEl.className = 'model-status model-online';
+    } else {
+      const detail = stats.model && stats.model.error ? ` (${stats.model.error})` : '';
+      modelStatusEl.textContent = `Model status: unavailable${detail}`;
+      modelStatusEl.className = 'model-status model-offline';
+    }
+
+    renderAttackChips(stats.attack_labels || []);
 
     updateCharts(stats, logs.data || []);
     renderLogs(logs.data || []);
@@ -254,19 +322,7 @@ function startLogStream() {
   es.onmessage = (evt) => {
     try {
       const rec = JSON.parse(evt.data);
-      const tr = document.createElement('tr');
-      const tdTs = document.createElement('td'); 
-      tdTs.textContent = rec.timestamp ? rec.timestamp.substring(0, 19).replace('T', ' ') : ''; 
-      tr.appendChild(tdTs);
-      const tdIp = document.createElement('td'); tdIp.textContent = rec.ip || ''; tr.appendChild(tdIp);
-      const tdUser = document.createElement('td'); tdUser.textContent = rec.username || ''; tr.appendChild(tdUser);
-      const tdCmd = document.createElement('td'); 
-      tdCmd.textContent = rec.command ? rec.command.substring(0, 60) : ''; 
-      tdCmd.title = rec.command || '';
-      tr.appendChild(tdCmd);
-      const tdEvt = document.createElement('td'); 
-      tdEvt.textContent = rec.event_type ? rec.event_type.replace('cowrie.', '') : ''; 
-      tr.appendChild(tdEvt);
+      const tr = buildRow(rec);
       if (logsBody.firstChild) {
         logsBody.insertBefore(tr, logsBody.firstChild);
       } else {

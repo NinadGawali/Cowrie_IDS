@@ -14,9 +14,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy backend and frontend (compose build context is repo root)
 COPY backend /app/backend
 COPY frontend /app/frontend
+COPY model_training /app/model_training
 
 # Default environment
 ENV LOG_DIR=/app/cowrie_logs
+ENV MODEL_PATH=/app/model_training/model.pkl
 EXPOSE 5000
 
 # Start Flask app

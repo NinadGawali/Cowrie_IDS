@@ -103,7 +103,7 @@ docker compose version
 ### 1️⃣ Clone or Navigate to Project
 
 ```powershell
-cd C:\Users\JCIN\OneDrive\Desktop\IDS
+cd C:\Users\JCIN\OneDrive\Desktop\Cowrie_IDS
 ```
 
 ### 2️⃣ Configure API Key
@@ -116,7 +116,18 @@ GEMINI_MODEL=gemini-2.5-flash
 ENABLE_MONGO=false
 LOG_DIR=/app/cowrie_logs
 CACHE_REFRESH=3
+MODEL_PATH=/app/model_training/model.pkl
 ```
+
+### 2.1️⃣ Add Your Trained Model
+
+Place your trained file at:
+
+```text
+model_training/model.pkl
+```
+
+The backend will auto-load this model and add `attack_label` + `attack_confidence` to log records.
 
 ### 3️⃣ Start the Stack
 
@@ -153,6 +164,7 @@ exit
 | `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` |
 | `LOG_DIR` | Container log directory | `/app/cowrie_logs` |
 | `CACHE_REFRESH` | Cache refresh interval (seconds) | `3` |
+| `MODEL_PATH` | Attack classifier model path | `/app/model_training/model.pkl` |
 | `ENABLE_MONGO` | Enable MongoDB persistence | `false` |
 | `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017` |
 
@@ -256,7 +268,7 @@ Base URL: `http://localhost:5000`
 |----------|--------|-------------|
 | `/` | GET | Dashboard UI |
 | `/logs` | GET | Recent honeypot logs (JSON) |
-| `/stats` | GET | Attack statistics & top IPs/commands |
+| `/stats` | GET | Attack statistics, model health, and prediction counts |
 | `/summary` | GET | AI-generated threat analysis |
 | `/stream/logs` | GET | Server-Sent Events stream (real-time logs) |
 

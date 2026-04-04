@@ -34,6 +34,10 @@
           <h3>Credential Attempts</h3>
           <div id="totalCreds" class="kpi">-</div>
         </div>
+        <div class="card">
+          <h3>Top Predicted Attack</h3>
+          <div id="topAttack" class="kpi kpi-small">-</div>
+        </div>
       </section>
 
       <section class="charts-grid">
@@ -59,6 +63,12 @@
       </section>
 
       <section>
+        <h2>🧠 ML Attack Classification</h2>
+        <div id="modelStatus" class="model-status">Model status: checking...</div>
+        <div id="attackChips" class="attack-chip-grid"></div>
+      </section>
+
+      <section>
         <h2>Recent Activity Log</h2>
         <div class="table-wrapper">
           <table>
@@ -69,6 +79,8 @@
                 <th>User</th>
                 <th>Command</th>
                 <th>Event</th>
+                <th>Prediction</th>
+                <th>Confidence</th>
               </tr>
             </thead>
             <tbody id="logsBody"></tbody>

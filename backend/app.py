@@ -4,7 +4,6 @@ Run with: python -m backend.app
 from __future__ import annotations
 import os
 import time
-from functools import lru_cache
 from typing import Dict, Any
 
 # File system watching for real-time updates
@@ -20,6 +19,7 @@ from flask_cors import CORS
 
 from .log_parser import CowrieLogParser
 from .summarizer import summarize_logs
+from .attack_classifier import AttackClassifier
 
 LOG_DIR = os.getenv("LOG_DIR", "./cowrie_logs")
 REFRESH_SECONDS = int(os.getenv("CACHE_REFRESH", "3"))
@@ -28,14 +28,25 @@ app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
 
 parser = CowrieLogParser(LOG_DIR)
+classifier = AttackClassifier()
 _cache: Dict[str, Any] = {"ts": 0, "logs": []}
 _summary_cache: Dict[str, Any] = {"ts": 0, "data": {}}
+
+
+def _with_predictions(rows):
+    enriched = []
+    for row in rows:
+        pred = classifier.classify_command(row.get("command"))
+        item = dict(row)
+        item.update(pred)
+        enriched.append(item)
+    return enriched
 
 
 # --- Real-time file watcher: update caches when log files change ---
 def _prime_logs():
     """Load logs immediately to populate cache."""
-    _cache["logs"] = parser.get_recent_logs(limit=400)
+    _cache["logs"] = _with_predictions(parser.get_recent_logs(limit=400))
     _cache["ts"] = time.time()
 
 
@@ -65,7 +76,7 @@ if _WATCHDOG_AVAILABLE:
 def _refresh_logs() -> None:
     now = time.time()
     if now - _cache["ts"] > REFRESH_SECONDS:
-        _cache["logs"] = parser.get_recent_logs(limit=400)
+        _cache["logs"] = _with_predictions(parser.get_recent_logs(limit=400))
         _cache["ts"] = now
 
 
@@ -96,11 +107,13 @@ def stats():
     top_ips: Dict[str, int] = {}
     top_cmds: Dict[str, int] = {}
     creds_attempts: Dict[str, int] = {}
+    attack_labels: Dict[str, int] = {}
     for r in data:
         ip = r.get("ip")
         cmd = r.get("command")
         user = r.get("username")
         pwd = r.get("password")
+        label = r.get("attack_label")
         if ip:
             top_ips[ip] = top_ips.get(ip, 0) + 1
         if cmd:
@@ -108,6 +121,8 @@ def stats():
         if user or pwd:
             cred = f"{user}:{pwd}" if user or pwd else "-"
             creds_attempts[cred] = creds_attempts.get(cred, 0) + 1
+        if label:
+            attack_labels[label] = attack_labels.get(label, 0) + 1
 
     def top_n(d: Dict[str, int], n=10):
         return sorted([{"value": k, "count": v} for k, v in d.items()], key=lambda x: x["count"], reverse=True)[:n]
@@ -117,6 +132,11 @@ def stats():
         "top_ips": top_n(top_ips),
         "top_commands": top_n(top_cmds),
         "credential_attempts": top_n(creds_attempts),
+        "attack_labels": top_n(attack_labels),
+        "model": {
+            "available": classifier.available,
+            "error": classifier.error,
+        },
     })
 
 
@@ -190,6 +210,7 @@ def stream_logs():
                             'session': record.session,
                             'message': record.message,
                         }
+                        payload.update(classifier.classify_command(record.command))
                         yield f"data: {json.dumps(payload)}\n\n"
                 time.sleep(1)
             except GeneratorExit:
