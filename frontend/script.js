@@ -10,6 +10,7 @@ const modelStatusEl = document.getElementById('modelStatus');
 const attackChipsEl = document.getElementById('attackChips');
 
 let ipChart, cmdChart, timelineChart;
+let summaryTimer = null;
 
 function formatConfidence(value) {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -273,10 +274,9 @@ async function refresh() {
   try {
     statusEl.textContent = 'Refreshing…';
 
-    const [logs, stats, summary] = await Promise.all([
+    const [logs, stats] = await Promise.all([
       fetchJson('/logs'),
       fetchJson('/stats'),
-      fetchJson('/summary'),
     ]);
 
     totalEl.textContent = stats.total_events;
@@ -298,8 +298,6 @@ async function refresh() {
 
     updateCharts(stats, logs.data || []);
     renderLogs(logs.data || []);
-    
-    insightsEl.innerHTML = formatGeminiInsights(summary);
 
     statusEl.textContent = 'OK';
   } catch (e) {
@@ -307,10 +305,23 @@ async function refresh() {
   }
 }
 
+async function refreshSummary() {
+  try {
+    const summary = await fetchJson('/summary');
+    insightsEl.innerHTML = formatGeminiInsights(summary);
+  } catch (e) {
+    insightsEl.innerHTML = `<p>Summary unavailable: ${e.message}</p>`;
+  }
+}
+
 // Initialize charts on load
 initCharts();
 refresh();
 setInterval(refresh, 10000);
+setTimeout(() => {
+  refreshSummary();
+  summaryTimer = setInterval(refreshSummary, 60000);
+}, 60000);
 
 // Real-time logs via SSE
 function startLogStream() {

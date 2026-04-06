@@ -23,6 +23,7 @@ from .attack_classifier import AttackClassifier
 
 LOG_DIR = os.getenv("LOG_DIR", "./cowrie_logs")
 REFRESH_SECONDS = int(os.getenv("CACHE_REFRESH", "3"))
+SUMMARY_REFRESH_SECONDS = int(os.getenv("SUMMARY_REFRESH_SECONDS", "60"))
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
@@ -30,7 +31,16 @@ CORS(app)
 parser = CowrieLogParser(LOG_DIR)
 classifier = AttackClassifier()
 _cache: Dict[str, Any] = {"ts": 0, "logs": []}
-_summary_cache: Dict[str, Any] = {"ts": 0, "data": {}}
+_summary_cache: Dict[str, Any] = {
+    "ts": time.time(),
+    "data": {
+        "summary": "AI analysis will be available after 1 minute.",
+        "tactics": [],
+        "recommendations": [],
+        "risk_level": "unknown",
+    },
+    "dirty": True,
+}
 
 
 def _with_predictions(rows):
@@ -56,8 +66,8 @@ if _WATCHDOG_AVAILABLE:
             # Any change under LOG_DIR should prompt a cache refresh
             try:
                 _prime_logs()
-                # Invalidate summary; recompute on next request
-                _summary_cache["ts"] = 0
+                # Mark summary stale, but keep the cooldown so Gemini is not spammed.
+                _summary_cache["dirty"] = True
             except Exception:
                 pass
 
@@ -82,10 +92,14 @@ def _refresh_logs() -> None:
 
 def _refresh_summary() -> None:
     now = time.time()
-    if now - _summary_cache["ts"] > REFRESH_SECONDS:
-        _refresh_logs()
-        _summary_cache["data"] = summarize_logs(_cache["logs"])
-        _summary_cache["ts"] = now
+    if now - _summary_cache["ts"] < SUMMARY_REFRESH_SECONDS:
+        return
+    if not _summary_cache.get("dirty") and _summary_cache.get("data"):
+        return
+    _refresh_logs()
+    _summary_cache["data"] = summarize_logs(_cache["logs"])
+    _summary_cache["ts"] = now
+    _summary_cache["dirty"] = False
 
 
 @app.route("/")
