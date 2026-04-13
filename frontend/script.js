@@ -6,12 +6,11 @@ const totalCredsEl = document.getElementById('totalCreds');
 const topAttackEl = document.getElementById('topAttack');
 const logsBody = document.getElementById('logsBody');
 const insightsEl = document.getElementById('insights');
+const analyzeBtn = document.getElementById('analyzeBtn');
 const modelStatusEl = document.getElementById('modelStatus');
 const attackChipsEl = document.getElementById('attackChips');
 
 let ipChart, cmdChart, timelineChart;
-let summaryTimer = null;
-
 function formatConfidence(value) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return '-';
@@ -232,6 +231,14 @@ function formatGeminiInsights(summary) {
   if (summary.summary) {
     html += `<h4>📊 Summary</h4><p>${summary.summary}</p>`;
   }
+
+  if (summary.reasoning) {
+    html += `<h4>🧠 Reasoning</h4><p>${summary.reasoning}</p>`;
+  }
+
+  if (summary.log_context) {
+    html += `<h4>🧾 Log Context</h4><p>${summary.log_context}</p>`;
+  }
   
   if (summary.tactics && summary.tactics.length > 0) {
     html += '<h4>⚔️ Attack Tactics</h4><ul>';
@@ -307,10 +314,21 @@ async function refresh() {
 
 async function refreshSummary() {
   try {
-    const summary = await fetchJson('/summary');
+    if (analyzeBtn) {
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = 'Analyzing...';
+    }
+    insightsEl.innerHTML = '<div class="loading">Analyzing latest 10 logs with detailed reasoning...</div>';
+
+    const summary = await fetchJson(`/summary?limit=10&t=${Date.now()}`);
     insightsEl.innerHTML = formatGeminiInsights(summary);
   } catch (e) {
     insightsEl.innerHTML = `<p>Summary unavailable: ${e.message}</p>`;
+  } finally {
+    if (analyzeBtn) {
+      analyzeBtn.disabled = false;
+      analyzeBtn.textContent = 'Analyze Latest 10 Logs';
+    }
   }
 }
 
@@ -318,10 +336,10 @@ async function refreshSummary() {
 initCharts();
 refresh();
 setInterval(refresh, 10000);
-setTimeout(() => {
-  refreshSummary();
-  summaryTimer = setInterval(refreshSummary, 60000);
-}, 60000);
+
+if (analyzeBtn) {
+  analyzeBtn.addEventListener('click', refreshSummary);
+}
 
 // Real-time logs via SSE
 function startLogStream() {

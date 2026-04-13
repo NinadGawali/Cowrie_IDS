@@ -38,6 +38,11 @@ h2 {color:var(--accent); font-size:1.3rem; margin-bottom:1rem;}
 .insights-panel ul {margin:0.5rem 0; padding-left:1.5rem;}
 .insights-panel li {margin:0.3rem 0; color:var(--text);}
 .insights-panel code {background:var(--bg-a); padding:0.2rem 0.4rem; border-radius:4px; color:var(--accent); font-size:0.9em;}
+.ai-actions {display:flex; align-items:center; gap:0.8rem; margin-bottom:0.8rem; flex-wrap:wrap;}
+.analyze-btn {background:linear-gradient(135deg, #00d9ff 0%, #00a3cc 100%); color:#06101c; border:none; border-radius:10px; padding:0.65rem 1rem; font-weight:700; cursor:pointer; transition:transform 0.2s, box-shadow 0.2s, opacity 0.2s;}
+.analyze-btn:hover {transform:translateY(-1px); box-shadow:0 8px 16px rgba(0, 163, 204, 0.35);}
+.analyze-btn:disabled {opacity:0.55; cursor:not-allowed; transform:none; box-shadow:none;}
+.ai-note {font-size:0.85rem; color:var(--muted);}
 .table-wrapper {overflow:auto; max-height:500px; border:1px solid var(--line); border-radius:12px; background:var(--panel);}
 table {width:100%; border-collapse:collapse; font-size:0.85rem;}
 th, td {padding:8px 12px; border-bottom:1px solid var(--line); text-align:left;}

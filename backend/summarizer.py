@@ -32,9 +32,15 @@ def build_prompt(parsed_logs: List[Dict]) -> str:
         "Analyze the attacker behavior, tools used, attack patterns, and potential threats.\n\n"
         "Return a JSON object with these exact keys:\n"
         "- summary: A 2-3 sentence overview of the attack activity\n"
+        "- reasoning: A detailed explanation (5-8 sentences) that cites patterns from the logs and explains why the assessed risk level is appropriate\n"
+        "- log_context: A compact explanation of what was observed specifically in these latest logs (IPs, commands, event sequence, and suspicious indicators)\n"
         "- tactics: Array of strings describing specific attack techniques observed (e.g., 'Credential brute force', 'Command reconnaissance')\n"
         "- recommendations: Array of actionable security recommendations\n"
         "- risk_level: One of 'low', 'medium', 'high', or 'critical'\n\n"
+        "Important constraints:\n"
+        "- Use only the provided logs, do not invent unseen activity.\n"
+        "- Be specific and evidence-based.\n"
+        "- Keep recommendations directly tied to observed attacker behavior.\n\n"
         f"HONEYPOT LOGS:\n{joined}\n\n"
         "Respond ONLY with valid JSON, no markdown formatting."
     )
@@ -46,6 +52,8 @@ def summarize_logs(parsed_logs: List[Dict]) -> Dict:
     if not _llm:
         return {
             "summary": "AI analysis unavailable. Please configure GOOGLE_API_KEY in .env file.",
+            "reasoning": "Detailed reasoning is unavailable because the Gemini model is not configured.",
+            "log_context": "No model output available.",
             "tactics": [],
             "recommendations": ["Set GOOGLE_API_KEY to enable AI-powered threat analysis"],
             "risk_level": "unknown"
@@ -56,6 +64,8 @@ def summarize_logs(parsed_logs: List[Dict]) -> Dict:
     except Exception as e:
         return {
             "summary": f"AI analysis failed: {str(e)}",
+            "reasoning": "The model call failed before analysis could complete.",
+            "log_context": "Unable to derive context due to model request failure.",
             "tactics": [],
             "recommendations": ["Check API key validity and network connectivity"],
             "risk_level": "unknown"
@@ -75,6 +85,8 @@ def summarize_logs(parsed_logs: List[Dict]) -> Dict:
         if isinstance(data, dict):
             # Ensure all expected keys exist
             data.setdefault('summary', 'Analysis completed')
+            data.setdefault('reasoning', 'Detailed reasoning not provided by model.')
+            data.setdefault('log_context', 'Log context unavailable.')
             data.setdefault('tactics', [])
             data.setdefault('recommendations', [])
             data.setdefault('risk_level', 'medium')
@@ -85,6 +97,8 @@ def summarize_logs(parsed_logs: List[Dict]) -> Dict:
     # Fallback if JSON parsing failed
     return {
         "summary": text[:500] if len(text) > 500 else text,
+        "reasoning": "The model did not return valid JSON; summary text shown instead.",
+        "log_context": "Could not parse structured context from model output.",
         "tactics": [],
         "recommendations": [],
         "risk_level": "unknown"
