@@ -1,18 +1,9 @@
-"""Flask application exposing Cowrie honeypot analysis APIs and serving dashboard.
-Run with: python -m backend.app
-"""
 from __future__ import annotations
 import os
 import time
+import json
+import glob
 from typing import Dict, Any
-
-# File system watching for real-time updates
-try:
-    from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler
-    _WATCHDOG_AVAILABLE = True
-except Exception:
-    _WATCHDOG_AVAILABLE = False
 
 from flask import Flask, jsonify, send_from_directory, Response, request
 from flask_cors import CORS
@@ -22,99 +13,91 @@ from .summarizer import summarize_logs
 from .attack_classifier import AttackClassifier
 
 LOG_DIR = os.getenv("LOG_DIR", "./cowrie_logs")
-REFRESH_SECONDS = int(os.getenv("CACHE_REFRESH", "3"))
+REFRESH_SECONDS = 10
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
 
 parser = CowrieLogParser(LOG_DIR)
 classifier = AttackClassifier()
+
 _cache: Dict[str, Any] = {"ts": 0, "logs": []}
+_prediction_cache = {}
+
+
+# ✅ Prediction cache (major CPU optimization)
+def get_prediction(cmd):
+    if not cmd:
+        return {}
+    if cmd in _prediction_cache:
+        return _prediction_cache[cmd]
+
+    pred = classifier.classify_command(cmd)
+    _prediction_cache[cmd] = pred
+    return pred
 
 
 def _with_predictions(rows):
     enriched = []
     for row in rows:
-        pred = classifier.classify_command(row.get("command"))
         item = dict(row)
-        item.update(pred)
+        item.update(get_prediction(row.get("command")))
         enriched.append(item)
     return enriched
 
 
-# --- Real-time file watcher: update caches when log files change ---
-def _prime_logs():
-    """Load logs immediately to populate cache."""
-    _cache["logs"] = _with_predictions(parser.get_recent_logs(limit=400))
-    _cache["ts"] = time.time()
-
-
-if _WATCHDOG_AVAILABLE:
-    class _LogDirHandler(FileSystemEventHandler):
-        def on_any_event(self, event):
-            # Any change under LOG_DIR should prompt a cache refresh
-            try:
-                _prime_logs()
-            except Exception:
-                pass
-
-    # Ensure directory exists to avoid observer errors
-    os.makedirs(LOG_DIR, exist_ok=True)
-    _observer = Observer()
-    _observer.schedule(_LogDirHandler(), LOG_DIR, recursive=False)
-    _observer.daemon = True
-    try:
-        _observer.start()
-    except Exception:
-        # If observer fails (e.g., missing permissions), fall back to timed refresh
-        _WATCHDOG_AVAILABLE = False
-
-
-def _refresh_logs() -> None:
+def _refresh_logs():
     now = time.time()
     if now - _cache["ts"] > REFRESH_SECONDS:
-        _cache["logs"] = _with_predictions(parser.get_recent_logs(limit=400))
+        logs = parser.get_recent_logs(limit=100)
+        _cache["logs"] = _with_predictions(logs)
         _cache["ts"] = now
 
 
 @app.route("/")
 def index():
-    # Serve the dashboard index.html
     return send_from_directory(app.static_folder, "index.html")
 
 
 @app.route("/logs")
 def logs():
     _refresh_logs()
-    return jsonify({"count": len(_cache["logs"]), "data": _cache["logs"]})
+    return jsonify({
+        "count": len(_cache["logs"]),
+        "data": _cache["logs"]
+    })
 
 
 @app.route("/stats")
 def stats():
     _refresh_logs()
     data = _cache["logs"]
-    top_ips: Dict[str, int] = {}
-    top_cmds: Dict[str, int] = {}
-    creds_attempts: Dict[str, int] = {}
-    attack_labels: Dict[str, int] = {}
+
+    top_ips, top_cmds, creds_attempts, attack_labels = {}, {}, {}, {}
+
     for r in data:
         ip = r.get("ip")
         cmd = r.get("command")
         user = r.get("username")
         pwd = r.get("password")
         label = r.get("attack_label")
+
         if ip:
             top_ips[ip] = top_ips.get(ip, 0) + 1
         if cmd:
             top_cmds[cmd] = top_cmds.get(cmd, 0) + 1
         if user or pwd:
-            cred = f"{user}:{pwd}" if user or pwd else "-"
+            cred = f"{user}:{pwd}"
             creds_attempts[cred] = creds_attempts.get(cred, 0) + 1
         if label:
             attack_labels[label] = attack_labels.get(label, 0) + 1
 
-    def top_n(d: Dict[str, int], n=10):
-        return sorted([{"value": k, "count": v} for k, v in d.items()], key=lambda x: x["count"], reverse=True)[:n]
+    def top_n(d, n=10):
+        return sorted(
+            [{"value": k, "count": v} for k, v in d.items()],
+            key=lambda x: x["count"],
+            reverse=True
+        )[:n]
 
     return jsonify({
         "total_events": len(data),
@@ -124,101 +107,73 @@ def stats():
         "attack_labels": top_n(attack_labels),
         "model": {
             "available": classifier.available,
-            "error": classifier.error,
-        },
+            "error": classifier.error
+        }
     })
 
 
 @app.route("/summary")
 def summary():
     limit = request.args.get("limit", default=10, type=int)
-    if limit <= 0:
-        limit = 10
-    if limit > 300:
-        limit = 300
     _refresh_logs()
-    target_logs = _cache["logs"][:limit]
-    data = summarize_logs(target_logs)
-    if isinstance(data, dict):
-        data["analyzed_log_count"] = len(target_logs)
+    logs = _cache["logs"][:limit]
+    data = summarize_logs(logs)
     return jsonify(data)
 
 
-# Static assets fallback
-@app.route('/<path:path>')
-def static_proxy(path):
-    return send_from_directory(app.static_folder, path)
-
-
+# ✅ FIXED SSE (no CPU spike + no crash)
 @app.route('/stream/logs')
 def stream_logs():
-    """Server-Sent Events (SSE) stream of new log records as they appear.
-    This tails the primary cowrie.json file and emits normalized records.
-    """
-    import glob
-    import json
-
-    def pick_log_file() -> str | None:
-        # Look for cowrie.json and cowrie.json.* (non-compressed), newest first
-        candidates = glob.glob(os.path.join(LOG_DIR, 'cowrie.json'))
-        candidates += glob.glob(os.path.join(LOG_DIR, 'cowrie.json.*'))
-        candidates = [p for p in candidates if not p.endswith(('.gz', '.xz', '.zip'))]
-        if not candidates:
-            return None
-        candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-        return candidates[0]
+    def pick_file():
+        files = glob.glob(os.path.join(LOG_DIR, "cowrie.json"))
+        return files[0] if files else None
 
     def generate():
-        last_file = None
         last_size = 0
+
         while True:
             try:
-                log_file = pick_log_file()
-                if not log_file:
-                    time.sleep(1)
+                file = pick_file()
+                if not file:
+                    time.sleep(2)
                     continue
-                # File rotated or changed
-                if log_file != last_file:
-                    last_file = log_file
-                    last_size = 0
 
-                current_size = os.path.getsize(log_file)
-                if current_size < last_size:
-                    last_size = 0
-                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file, 'r') as f:
                     f.seek(last_size)
-                    for line in f:
-                        last_size = f.tell()
-                        line = line.strip()
+
+                    while True:
+                        line = f.readline()
                         if not line:
-                            continue
+                            break
+
+                        last_size = f.tell()
+
                         try:
                             evt = json.loads(line)
-                        except Exception:
+                        except:
                             continue
+
                         record = parser._normalize(evt)
-                        # record is a dataclass; convert to dict
+
                         payload = {
-                            'timestamp': record.timestamp,
-                            'ip': record.ip,
-                            'event_type': record.event_type,
-                            'command': record.command,
-                            'username': record.username,
-                            'password': record.password,
-                            'session': record.session,
-                            'message': record.message,
+                            "timestamp": record.timestamp,
+                            "ip": record.ip,
+                            "command": record.command
                         }
-                        payload.update(classifier.classify_command(record.command))
+
+                        payload.update(get_prediction(record.command))
+
                         yield f"data: {json.dumps(payload)}\n\n"
-                time.sleep(1)
+
+                time.sleep(2)
+
             except GeneratorExit:
                 break
-            except Exception:
-                time.sleep(1)
-                continue
+            except:
+                time.sleep(2)
+
     return Response(generate(), mimetype='text/event-stream')
 
 
 if __name__ == "__main__":
-    # For local dev without Docker
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)

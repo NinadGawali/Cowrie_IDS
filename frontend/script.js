@@ -196,26 +196,25 @@ function initCharts() {
 }
 
 function updateCharts(stats, logs) {
-  // Update IP chart
-  const topIps = stats.top_ips.slice(0, 10);
-  ipChart.data.labels = topIps.map(item => item.value);
-  ipChart.data.datasets[0].data = topIps.map(item => item.count);
+  const topIps = (stats?.top_ips || []).slice(0, 10);
+  ipChart.data.labels = topIps.map(i => i.value);
+  ipChart.data.datasets[0].data = topIps.map(i => i.count);
   ipChart.update();
 
-  // Update command chart
-  const topCmds = stats.top_commands.slice(0, 8);
-  cmdChart.data.labels = topCmds.map(item => item.value.substring(0, 30));
-  cmdChart.data.datasets[0].data = topCmds.map(item => item.count);
+  const topCmds = (stats?.top_commands || []).slice(0, 8);
+  cmdChart.data.labels = topCmds.map(i => i.value.substring(0, 30));
+  cmdChart.data.datasets[0].data = topCmds.map(i => i.count);
   cmdChart.update();
 
-  // Update timeline (last 50 events)
-  const recentLogs = logs.slice(0, 50).reverse();
+  const recent = (logs || []).slice(0, 50).reverse();
   const timeline = {};
-  recentLogs.forEach(log => {
+
+  recent.forEach(log => {
     if (!log.timestamp) return;
-    const time = log.timestamp.substring(11, 16); // HH:MM
-    timeline[time] = (timeline[time] || 0) + 1;
+    const t = log.timestamp.substring(11, 16);
+    timeline[t] = (timeline[t] || 0) + 1;
   });
+
   timelineChart.data.labels = Object.keys(timeline);
   timelineChart.data.datasets[0].data = Object.values(timeline);
   timelineChart.update();
@@ -281,34 +280,40 @@ async function refresh() {
   try {
     statusEl.textContent = 'Refreshing…';
 
-    const [logs, stats] = await Promise.all([
+    const [logsRes, stats] = await Promise.all([
       fetchJson('/logs'),
       fetchJson('/stats'),
     ]);
 
-    totalEl.textContent = stats.total_events;
-    uniqueIpsEl.textContent = new Set((logs.data || []).map(item => item.ip).filter(Boolean)).size;
-    totalCommandsEl.textContent = stats.top_commands.reduce((sum, c) => sum + c.count, 0);
-    totalCredsEl.textContent = stats.credential_attempts.reduce((sum, c) => sum + c.count, 0);
-    topAttackEl.textContent = (stats.attack_labels && stats.attack_labels[0] && stats.attack_labels[0].value) || '-';
+    const logs = logsRes?.data || [];
+    const topCommands = stats?.top_commands || [];
+    const credentialAttempts = stats?.credential_attempts || [];
+    const attackLabels = stats?.attack_labels || [];
 
-    if (stats.model && stats.model.available) {
-      modelStatusEl.textContent = 'Model status: online';
-      modelStatusEl.className = 'model-status model-online';
-    } else {
-      const detail = stats.model && stats.model.error ? ` (${stats.model.error})` : '';
-      modelStatusEl.textContent = `Model status: unavailable${detail}`;
-      modelStatusEl.className = 'model-status model-offline';
-    }
+    totalEl.textContent = stats?.total_events || 0;
 
-    renderAttackChips(stats.attack_labels || []);
+    uniqueIpsEl.textContent = new Set(
+      logs.map(x => x?.ip).filter(Boolean)
+    ).size;
 
-    updateCharts(stats, logs.data || []);
-    renderLogs(logs.data || []);
+    totalCommandsEl.textContent = topCommands.reduce(
+      (sum, c) => sum + (c?.count || 0), 0
+    );
+
+    totalCredsEl.textContent = credentialAttempts.reduce(
+      (sum, c) => sum + (c?.count || 0), 0
+    );
+
+    topAttackEl.textContent = attackLabels[0]?.value || '-';
+
+    renderAttackChips(attackLabels);
+    updateCharts(stats, logs);
+    renderLogs(logs);
 
     statusEl.textContent = 'OK';
   } catch (e) {
     statusEl.textContent = 'Error: ' + e.message;
+    console.error(e);
   }
 }
 
